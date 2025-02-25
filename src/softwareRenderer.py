@@ -8,11 +8,6 @@
 import math,pygame,time,pygame.gfxdraw
 import numpy as np
 
-SIZE = (800,800)
-pygame.font.init() 
-obj_file = "../models/bunny.obj"
-my_font = pygame.font.SysFont('Helvetica', 12)
-
 
 class vec4():
     x,y,z,w = 0,0,0,0
@@ -46,7 +41,6 @@ class vec4():
     def __str__(self):
         return f"({self.x:.2f},{self.y:.2f},{self.z:.2f},{self.w:.2f})"
 
-    
     def __mul__(self,o):    
         if (type(o) == float or type(o) == int):
             return vec4(self.x*o,self.y*o,self.z*o,self.w*o)
@@ -61,10 +55,12 @@ class vec4():
                 self.y+o.y,
                 self.z+o.z,
                 self.w+o.w)
+        
     def __sub__(self,o):
         if (type(o) == vec4):
             return vec4(self.x-o.x,self.y-o.y,self.z-o.z,self.w-o.w)
-    def Cross3D(self,o):
+        
+    def cross3D(self,o):
         return vec4(
             self.y*o.z - self.z*o.y,
             self.z*o.x - self.x*o.z,
@@ -176,15 +172,46 @@ def clamp(a,b,c):
 def degToRad(x):
     return x * math.pi/180
 
+
+
+SIZE = (800,800)
+pygame.font.init() 
+obj_file = "../models/bunny.obj"
+my_font = pygame.font.SysFont('Helvetica', 12)
+screen = pygame.display.set_mode(SIZE)
+run = True
+
+#camera position
+pos = vec4(0,0,0,0)
+#pitch/yaw
 p = 0
 y = 0
+#time
+t = 0
 
+#fps related
+fps = 0
+last = time.time()
 
+#specifies weather to center and hide mouse
+lockMouse = False
+#shader display mode
+frag = 0
+
+#render related
+drawNormal = False
+backfaceCulling = True
+lightDirection = vec4(1,1,1,0).norm()
+lightColor = (255,255,255)
+globalIllumination = (20,20,20)
+
+#geometry related
 verts = []
 edges = []
 faces = []
 faceSizes = []
 norm = []
+
 
 with open(obj_file,"r") as f:
     for line in f.readlines():
@@ -206,30 +233,9 @@ for f in faces:
     E1 = (b-a)
     E2 = (c-b)
     faceSizes.append(0.3 * max(max(E1.mag(),E2.mag()),(a-c).mag()))
-    normal = (E1.Cross3D(E2)).norm()
+    normal = (E1.cross3D(E2)).norm()
 
     norm.append(normal)
-
-screen = pygame.display.set_mode(SIZE)
-run = True
-
-pos = vec4(0,0,0,0)
-
-
-t = 0
-
-fps = 0
-last = time.time()
-
-drawNormal = False
-backfaceCulling = True
-lockMouse = False
-
-frag = 0
-
-lightDirection = vec4(1,1,1,0).norm()
-lightColor = (255,255,255)
-globalIllumination = (20,20,20)
 
 while run:
 
@@ -295,7 +301,8 @@ while run:
             run = False
         if (event.type == pygame.KEYDOWN):
             if event.key == pygame.K_r:
-                print(forward)
+                #debug statements go here!
+                pass
             if event.key == pygame.K_n:
                 drawNormal = not drawNormal
             if event.key == pygame.K_ESCAPE:
@@ -364,6 +371,7 @@ while run:
         pt.y = int(pt.y)
         return pt.z>0 and abs(pt.x)<3000 and abs(pt.y) < 3000
 
+    #commented out bc it's performance heavy
     #invObj = np.array([
     #    [ObjMat[0][0],ObjMat[0][1],ObjMat[0][2],ObjMat[0][3]],
     #    [ObjMat[1][0],ObjMat[1][1],ObjMat[1][2],ObjMat[1][3]],
@@ -385,19 +393,23 @@ while run:
         localNormal = norm[fIndex[0]]
         worldNormal = ObjR*localNormal
         barycenter = (verts[poly[0]]+verts[poly[1]]+verts[poly[2]])*(1.0/3.0)
-        #lineOfSight = (barycenter - localPos).norm()
-        
-        dot = view*worldNormal#lineOfSight*localNormal
 
+        #Didn't get this to work, I think it's because my coordinate spaces are all goofy
+        #lineOfSight = (barycenter - localPos).norm()
+        #dot = lineOfSight*localNormal
+
+        dot = view*worldNormal
         if (drawNormal):
-            #my mat4x4
+            #using my mat4x4
             #D = (verts[poly[0]]+verts[poly[1]]+verts[poly[2]])*(1.0/3.0)
             #E = toScr(mat*(D+surfNorm*0.2))
             #D = toScr(mat*D)
-            #np mat4x4
+            
+            #using np mat4x4
             E = toScr(np.matmul(camMat,np.array([barycenter.x + localNormal.x*faceSize,barycenter.y + localNormal.y*faceSize ,barycenter.z + localNormal.z*faceSize,1])))
             D = toScr(np.matmul(camMat,np.array([barycenter.x,barycenter.y,barycenter.z,1])))
 
+        #determine triangle color
         color = (0,0,0)
         if (frag==0):
             # world space normal
@@ -411,6 +423,9 @@ while run:
                      clamp(globalIllumination[0]+lDot*lightColor[0],0,255),
                      clamp(globalIllumination[1]+lDot*lightColor[1],0,255),
                      clamp(globalIllumination[2]+lDot*lightColor[2],0,255))
+
+        #draw triangles and normals
+        #validate is necessary to cast x/y to ints and ensure they are not exceedingly large or small
         if (validate(A) and validate(B) and validate(C) and (dot >= 0 or not backfaceCulling)):
             pygame.gfxdraw.filled_trigon(screen,A.x,A.y,B.x,B.y,C.x,C.y,color)
             #pygame.gfxdraw.trigon(screen,A.x,A.y,B.x,B.y,C.x,C.y,(0,0,0))
@@ -422,14 +437,18 @@ while run:
     profile = time.time() - profile
     surf_DText = my_font.render(f"Draw {profile*1000:0.2f}ms", False, (255, 255, 255))
 
+    #display matrix multiplication step execution time
     screen.blit(surf_MMText,(30,45))
+    #display drawing execution time
     screen.blit(surf_DText,(30,60))
 
-
+    #display position coordinates
     text_surface = my_font.render(f"({pos.x:0.2f},{pos.y:0.2f},{pos.z:0.2f})", False, (255, 255, 255))
     screen.blit(text_surface,(30,80))
+    #display view direction
     text_surface = my_font.render(f"({view.x:0.2f},{view.y:0.2f},{view.z:0.2f})", False, (255, 255, 255))
     screen.blit(text_surface,(30,95))
+    #display instructions
     instructions = "CONTROLS\n\nmouse:  view direction\nw/s:  forward/back \na/d:  left/right\nesc:  unlock cursor\nleft click:  lock cursor\nf:  switch shading\nn:  display normals"
     line = 0
     for s in instructions.split("\n"):
